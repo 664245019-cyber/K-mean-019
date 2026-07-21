@@ -112,11 +112,6 @@ st.markdown("""
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
     }
     
-    /* Sidebar styling */
-    .css-1d391kg {
-        background: linear-gradient(180deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
-    
     /* Button styling */
     .stButton>button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -143,30 +138,27 @@ st.markdown("""
         border-radius: 10px;
         margin: 1rem 0;
     }
-    
-    /* Success box */
-    .success-box {
-        background: #e8f5e9;
-        border-left: 5px solid #4caf50;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# Load models
+# Load models with robust error handling
 @st.cache_resource
 def load_models():
     """Load trained model and scaler"""
-    try:
-        model = joblib.load('models/kmeans_model.pkl')
-        scaler = joblib.load('models/scaler.pkl')
-        feature_names = joblib.load('models/feature_names.pkl')
-        return model, scaler, feature_names
-    except FileNotFoundError:
-        st.error("❌ Model files not found! Please ensure the models folder exists with required files.")
-        return None, None, None
+    model_path = Path('models/kmeans_model.pkl')
+    scaler_path = Path('models/scaler.pkl')
+    feature_path = Path('models/feature_names.pkl')
+    
+    if model_path.exists() and scaler_path.exists() and feature_path.exists():
+        try:
+            model = joblib.load(model_path)
+            scaler = joblib.load(scaler_path)
+            feature_names = joblib.load(feature_path)
+            return model, scaler, feature_names, True
+        except Exception as e:
+            st.error(f"❌ Error loading model files: {str(e)}")
+            return None, None, None, False
+    return None, None, None, False
 
 # Main header
 st.markdown("""
@@ -177,9 +169,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Load models
-model, scaler, feature_names = load_models()
+model, scaler, feature_names, models_loaded = load_models()
 
-if model is not None:
+if not models_loaded:
+    st.warning("⚠️ Warning: Model files (`models/kmeans_model.pkl`, `models/scaler.pkl`, `models/feature_names.pkl`) were not found.")
+    st.info("Please make sure you have trained your model and uploaded the `models` folder to your GitHub repository.")
+    
+    # Fallback dummy data structure for demonstration if files are missing so app doesn't break completely
+    if st.checkbox("🔄 Enable Demo Mode (Mock Model for Testing UI)"):
+        from sklearn.cluster import KMeans
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.datasets import load_iris
+        
+        iris = load_iris()
+        scaler = StandardScaler().fit(iris.data)
+        model = KMeans(n_clusters=3, random_state=42, n_init=10).fit(scaler.transform(iris.data))
+        feature_names = ['sepal length (cm)', 'sepal width (cm)', 'petal length (cm)', 'petal width (cm)']
+        models_loaded = True
+    else:
+        st.stop()
+
+if models_loaded:
     # Sidebar
     with st.sidebar:
         st.markdown("## 📋 About")
@@ -202,73 +212,50 @@ if model is not None:
         """)
         
         st.markdown("---")
-        if st.button("🔄 Reset All"):
+        if st.button("🔄 Reset App"):
             st.rerun()
     
-    # Main content
+    # Main content tabs
     tab1, tab2, tab3 = st.tabs(["📝 Manual Prediction", "📁 Batch Prediction", "📊 Model Information"])
     
     # Tab 1: Manual Prediction
     with tab1:
         st.markdown("### 🎯 Enter Feature Values")
         
-        # Create input columns
         col1, col2 = st.columns(2)
         
         with col1:
             sepal_length = st.slider(
                 "Sepal Length (cm)",
-                min_value=4.0,
-                max_value=8.0,
-                value=5.5,
-                step=0.1,
+                min_value=4.0, max_value=8.0, value=5.5, step=0.1,
                 help="Enter sepal length in centimeters"
             )
-            
             sepal_width = st.slider(
                 "Sepal Width (cm)",
-                min_value=2.0,
-                max_value=5.0,
-                value=3.0,
-                step=0.1,
+                min_value=2.0, max_value=5.0, value=3.0, step=0.1,
                 help="Enter sepal width in centimeters"
             )
         
         with col2:
             petal_length = st.slider(
                 "Petal Length (cm)",
-                min_value=1.0,
-                max_value=7.0,
-                value=4.0,
-                step=0.1,
+                min_value=1.0, max_value=7.0, value=4.0, step=0.1,
                 help="Enter petal length in centimeters"
             )
-            
             petal_width = st.slider(
                 "Petal Width (cm)",
-                min_value=0.1,
-                max_value=3.0,
-                value=1.5,
-                step=0.1,
+                min_value=0.1, max_value=3.0, value=1.5, step=0.1,
                 help="Enter petal width in centimeters"
             )
         
-        # Predict button
         if st.button("🔮 Predict Cluster", use_container_width=True):
-            # Prepare input data
             input_data = np.array([[sepal_length, sepal_width, petal_length, petal_width]])
-            
-            # Scale input data
             input_scaled = scaler.transform(input_data)
-            
-            # Predict cluster
             cluster = model.predict(input_scaled)[0]
             
-            # Calculate distances to all cluster centers
             distances = np.linalg.norm(model.cluster_centers_ - input_scaled, axis=1)
             closest_distance = distances[cluster]
             
-            # Display results
             st.markdown("---")
             st.markdown(f"""
             <div class="result-card">
@@ -278,26 +265,22 @@ if model is not None:
             </div>
             """, unsafe_allow_html=True)
             
-            # Display metrics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
+            mcol1, mcol2, mcol3 = st.columns(3)
+            with mcol1:
                 st.markdown(f"""
                 <div class="metric-card">
                     <h3>Input Features</h3>
                     <p style="font-size: 1rem;">{len(input_data[0])} values</p>
                 </div>
                 """, unsafe_allow_html=True)
-            
-            with col2:
+            with mcol2:
                 st.markdown(f"""
                 <div class="metric-card">
                     <h3>Cluster Assigned</h3>
                     <p>{cluster}</p>
                 </div>
                 """, unsafe_allow_html=True)
-            
-            with col3:
+            with mcol3:
                 st.markdown(f"""
                 <div class="metric-card">
                     <h3>Confidence</h3>
@@ -305,7 +288,6 @@ if model is not None:
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Display distances to all clusters
             st.markdown("### 📏 Distances to All Cluster Centers")
             distance_df = pd.DataFrame({
                 'Cluster': [f"Cluster {i}" for i in range(len(distances))],
@@ -314,12 +296,8 @@ if model is not None:
             })
             st.dataframe(distance_df, use_container_width=True, hide_index=True)
             
-            # Visualization
             st.markdown("### 📊 Feature Visualization")
-            
-            # Create radar chart
             fig = go.Figure()
-            
             fig.add_trace(go.Scatterpolar(
                 r=input_scaled[0].tolist() + [input_scaled[0][0]],
                 theta=feature_names + [feature_names[0]],
@@ -327,7 +305,6 @@ if model is not None:
                 name='Input Sample',
                 line_color='rgb(102, 126, 234)'
             ))
-            
             fig.add_trace(go.Scatterpolar(
                 r=model.cluster_centers_[cluster].tolist() + [model.cluster_centers_[cluster][0]],
                 theta=feature_names + [feature_names[0]],
@@ -335,15 +312,7 @@ if model is not None:
                 name=f'Cluster {cluster} Center',
                 line_color='rgb(255, 99, 132)'
             ))
-            
-            fig.update_layout(
-                polar=dict(
-                    radialaxis=dict(visible=True),
-                ),
-                showlegend=True,
-                height=500
-            )
-            
+            fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, height=500)
             st.plotly_chart(fig, use_container_width=True)
     
     # Tab 2: Batch Prediction
@@ -355,34 +324,22 @@ if model is not None:
         
         if uploaded_file is not None:
             try:
-                # Read CSV
                 df = pd.read_csv(uploaded_file)
-                
                 st.markdown("### 📊 Data Preview")
                 st.dataframe(df.head(), use_container_width=True)
                 
-                # Check if columns match
                 required_cols = set(feature_names)
                 actual_cols = set(df.columns)
                 
                 if required_cols.issubset(actual_cols):
-                    # Prepare data
                     X_batch = df[feature_names].values
-                    
-                    # Scale data
                     X_batch_scaled = scaler.transform(X_batch)
-                    
-                    # Predict
                     predictions = model.predict(X_batch_scaled)
-                    
-                    # Add predictions to dataframe
                     df['Predicted_Cluster'] = predictions
                     
-                    # Display results
                     st.markdown("### ✅ Predictions Complete")
                     st.dataframe(df, use_container_width=True)
                     
-                    # Download button
                     csv = df.to_csv(index=False)
                     st.download_button(
                         label="📥 Download Results",
@@ -392,11 +349,10 @@ if model is not None:
                         use_container_width=True
                     )
                     
-                    # Cluster distribution
                     st.markdown("### 📊 Cluster Distribution")
-                    col1, col2 = st.columns(2)
+                    bcol1, bcol2 = st.columns(2)
                     
-                    with col1:
+                    with bcol1:
                         cluster_counts = df['Predicted_Cluster'].value_counts().sort_index()
                         fig_pie = px.pie(
                             values=cluster_counts.values,
@@ -406,7 +362,7 @@ if model is not None:
                         )
                         st.plotly_chart(fig_pie, use_container_width=True)
                     
-                    with col2:
+                    with bcol2:
                         fig_bar = px.bar(
                             x=[f"Cluster {i}" for i in cluster_counts.index],
                             y=cluster_counts.values,
@@ -417,7 +373,6 @@ if model is not None:
                         )
                         st.plotly_chart(fig_bar, use_container_width=True)
                     
-                    # 2D visualization
                     st.markdown("### 🎨 2D Feature Space Visualization")
                     fig_2d = px.scatter(
                         df,
@@ -428,36 +383,31 @@ if model is not None:
                         color_discrete_sequence=px.colors.qualitative.Set1
                     )
                     st.plotly_chart(fig_2d, use_container_width=True)
-                    
                 else:
                     st.error(f"""
                     ❌ **Column mismatch!**
-                    
                     Required columns: {', '.join(required_cols)}
-                    
                     Found columns: {', '.join(actual_cols)}
                     """)
-                    
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
     
     # Tab 3: Model Information
     with tab3:
         st.markdown("### 📋 Model Details")
+        mcol1, mcol2 = st.columns(2)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
+        with mcol1:
             st.markdown("#### 🔧 Model Parameters")
             st.markdown(f"""
             - **Algorithm**: K-Means
             - **Number of Clusters**: {model.n_clusters}
             - **Max Iterations**: {model.max_iter}
-            - **Random State**: {model.random_state}
-            - **N Init**: {model.n_init}
+            - **Random State**: {getattr(model, 'random_state', 'N/A')}
+            - **N Init**: {getattr(model, 'n_init', 'N/A')}
             """)
         
-        with col2:
+        with mcol2:
             st.markdown("#### 📊 Model Statistics")
             st.markdown(f"""
             - **Inertia**: {model.inertia_:.4f}
